@@ -138,8 +138,10 @@ static bool linkIsFullDuplex = false;
 // Is Ethernet initialized?
 static bool isInitialized = false;
 
-// Tracks seconds since the IEEE 1588 timer was started.
-static volatile uint32_t ieee1588Seconds = 0;
+// IEEE 1588
+static volatile uint32_t ieee1588Seconds = 0;  // Since the timer was started
+static volatile bool hasTxTimestamp = false;
+static volatile uint32_t txTimestamp = 0;
 
 void enet_isr();
 
@@ -336,6 +338,10 @@ static void t41_low_level_init() {
   attachInterruptVector(IRQ_ENET, enet_isr);
   NVIC_ENABLE_IRQ(IRQ_ENET);
 
+  // Set the IEEE 1588 timestamp to zero, in case it's used but not enabled
+  ENET_ATVR = 0;
+  ieee1588Seconds = 0;
+
   // Last, enable the Ethernet MAC
   ENET_ECR = 0x70000000 | ENET_ECR_DBSWP | ENET_ECR_EN1588 | ENET_ECR_ETHEREN;
 
@@ -383,6 +389,8 @@ static struct pbuf *t41_low_level_input(volatile enetbufferdesc_t *bdPtr) {
     p = pbuf_alloc(PBUF_RAW, bdPtr->length, PBUF_POOL);
     if (p) {
       pbuf_take(p, bdPtr->buffer, p->tot_len);
+      p->timestampValid = ((bdPtr->status & kEnetRxBdLast) != 0);
+      p->timestamp = bdPtr->timestamp;
       LINK_STATS_INC(link.recv);
     } else {
       LINK_STATS_INC(link.drop);
@@ -410,12 +418,20 @@ static inline volatile enetbufferdesc_t *get_bufdesc() {
 
 // Update a buffer descriptor. Meant to be used with get_bufdesc().
 static inline void update_bufdesc(volatile enetbufferdesc_t *bdPtr,
-                                  uint16_t len) {
+                                  uint16_t len,
+                                  bool doTimestamp) {
   bdPtr->length = len;
   bdPtr->status = (bdPtr->status & kEnetTxBdWrap) |
                   kEnetTxBdTransmitCrc |
                   kEnetTxBdLast |
                   kEnetTxBdReady;
+
+  hasTxTimestamp = false;  // The timestamp isn't yet available
+  if (doTimestamp) {
+    bdPtr->extend1 |= kEnetTxBdTimestamp;
+  } else {
+    bdPtr->extend1 &= ~kEnetTxBdTimestamp;
+  }
 
   ENET_TDAR = ENET_TDAR_TDAR;
 
@@ -430,7 +446,8 @@ static inline void update_bufdesc(volatile enetbufferdesc_t *bdPtr,
 
 static err_t t41_low_level_output(struct netif *netif, struct pbuf *p) {
   volatile enetbufferdesc_t *bdPtr = get_bufdesc();
-  update_bufdesc(bdPtr, pbuf_copy_partial(p, bdPtr->buffer, p->tot_len, 0));
+  update_bufdesc(bdPtr, pbuf_copy_partial(p, bdPtr->buffer, p->tot_len, 0),
+                 p->timestampValid);
   return ERR_OK;
 }
 
@@ -483,6 +500,12 @@ void enet_isr() {
   if ((ENET_EIR & ENET_EIR_TS_TIMER) != 0) {
     ENET_EIR = ENET_EIR_TS_TIMER;
     ieee1588Seconds++;
+  }
+
+  if ((ENET_EIR & ENET_EIR_TS_AVAIL) != 0) {
+    ENET_EIR = ENET_EIR_TS_AVAIL;
+    hasTxTimestamp = true;
+    txTimestamp = ENET_ATSTMP;
   }
 
   if (ENET_EIR & ENET_EIR_RXF) {
@@ -673,7 +696,7 @@ bool enet_link_is_full_duplex() {
   return linkIsFullDuplex;
 }
 
-bool enet_output_frame(const uint8_t *frame, size_t len) {
+bool enet_output_frame(const uint8_t *frame, size_t len, bool doTimestamp) {
   if (!isInitialized) {
     return false;
   }
@@ -683,10 +706,10 @@ bool enet_output_frame(const uint8_t *frame, size_t len) {
   volatile enetbufferdesc_t *bdPtr = get_bufdesc();
 #if ETH_PAD_SIZE
   memcpy(bdPtr->buffer + ETH_PAD_SIZE, frame, len);
-  update_bufdesc(bdPtr, len + ETH_PAD_SIZE);
+  update_bufdesc(bdPtr, len + ETH_PAD_SIZE, doTimestamp);
 #else
   memcpy(bdPtr->buffer, frame, len);
-  update_bufdesc(bdPtr, len);
+  update_bufdesc(bdPtr, len, doTimestamp);
 #endif  // ETH_PAD_SIZE
   return true;
 }
@@ -883,7 +906,7 @@ void enet_ieee1588_init() {
   ENET_ATCR = ENET_ATCR_PINPER | ENET_ATCR_Reserved | ENET_ATCR_PEREN |
               ENET_ATCR_EN;
 
-  ENET_EIMR |= ENET_EIMR_TS_TIMER;
+  ENET_EIMR |= ENET_EIMR_TS_AVAIL | ENET_EIMR_TS_TIMER;
 }
 
 void enet_ieee1588_deinit() {
@@ -930,6 +953,18 @@ bool enet_ieee1588_write_timer(const struct IEEE1588Timestamp *t) {
   }
 
   return true;
+}
+
+bool enet_ieee1588_read_and_clear_tx_timestamp(uint32_t *timestamp) {
+  // NOTE: This is not "concurrent safe"
+  if (hasTxTimestamp) {
+    hasTxTimestamp = false;
+    if (timestamp != NULL) {
+      *timestamp = txTimestamp;
+    }
+    return true;
+  }
+  return false;
 }
 
 bool enet_ieee1588_adjust_timer(uint32_t corrInc, uint32_t corrPeriod) {

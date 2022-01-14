@@ -54,6 +54,11 @@ class EthernetUDP final : public UDP {
   int beginPacket(const char *host, uint16_t port) override;
   int endPacket() override;
 
+  // Same as `endPacket()` but adds a timestamp.
+  //
+  // Timestamping must have been enabled first with EthernetIEEE1588.begin().
+  bool endPacketWithTimestamp();
+
   // Sends a UDP packet and returns whether the attempt was successful. This
   // combines the functions of beginPacket(), write(), and endPacket(), and
   // causes less overhead.
@@ -62,6 +67,18 @@ class EthernetUDP final : public UDP {
 
   // Calls the other send() function after performing a DNS lookup.
   bool send(const char *host, uint16_t port, const uint8_t *data, size_t len);
+
+  // Same as `send(ip, port, data, len)` but adds a timestamp to the packet.
+  //
+  // Timestamping must have been enabled first with EthernetIEEE1588.begin().
+  bool sendWithTimestamp(const IPAddress &ip, uint16_t port,
+                         const uint8_t *data, size_t len);
+
+  // Same as `send(host, port, data, len)` but adds a timestamp to the packet.
+  //
+  // Timestamping must have been enabled first with EthernetIEEE1588.begin().
+  bool sendWithTimestamp(const char *host, uint16_t port,
+                         const uint8_t *data, size_t len);
 
   // Bring Print::write functions into scope
   using Print::write;
@@ -91,6 +108,11 @@ class EthernetUDP final : public UDP {
   IPAddress remoteIP() override;
   uint16_t remotePort() override;
 
+  // Gets the IEEE 1588 timestamp for the received packet and assigns it to the
+  // `timestamp` parameter, if available. This returns whether the received
+  // packet has a timestamp.
+  bool timestamp(uint32_t *timestamp) const;
+
  private:
   static void recvFunc(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                        const ip_addr_t *addr, u16_t port);
@@ -98,7 +120,11 @@ class EthernetUDP final : public UDP {
   // ip_addr_t versions of transmission functions
   bool beginPacket(const ip_addr_t *ipaddr, uint16_t port);
   bool send(const ip_addr_t *ipaddr, uint16_t port,
-            const uint8_t *data, size_t len);
+            const uint8_t *data, size_t len,
+            bool doTimestamp);
+
+  // Timestamping send functions
+  bool endPacket(bool doTimestamp);
 
   // Checks if there's data still available in the packet.
   bool isAvailable() const;
@@ -109,12 +135,16 @@ class EthernetUDP final : public UDP {
   std::vector<unsigned char> inPacket_;  // Holds received packets
   ip_addr_t inAddr_;
   volatile uint16_t inPort_;
+  bool inHasTimestamp_;
+  uint32_t inTimestamp_;
 
   // Packet being processed by the caller
   std::vector<unsigned char> packet_;    // Holds the packet being read
   int packetPos_;                        // -1 if not currently reading a packet
   ip_addr_t addr_;
   uint16_t port_;
+  bool hasTimestamp_;
+  uint32_t timestamp_;
 
   // Outgoing packets
   bool hasOutPacket_;

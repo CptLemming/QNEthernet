@@ -49,6 +49,8 @@ void EthernetUDP::recvFunc(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     udp->inPacket_.insert(udp->inPacket_.end(), &data[0], &data[p->len]);
     p = p->next;
   }
+  udp->inHasTimestamp_ = pHead->timestampValid;
+  udp->inTimestamp_ = pHead->timestamp;
   udp->inAddr_ = *addr;
   udp->inPort_ = port;
 
@@ -60,10 +62,14 @@ EthernetUDP::EthernetUDP()
       inPacket_{},
       inAddr_{*IP_ANY_TYPE},
       inPort_(0),
+      inHasTimestamp_(false),
+      inTimestamp_(0),
       packet_{},
       packetPos_(-1),
       addr_{*IP_ANY_TYPE},
       port_(0),
+      hasTimestamp_(false),
+      timestamp_(0),
       hasOutPacket_(false),
       outAddr_{*IP_ANY_TYPE},
       outPort_(0),
@@ -138,6 +144,8 @@ void EthernetUDP::stop() {
 
   addr_ = *IP_ANY_TYPE;
   port_ = 0;
+  hasTimestamp_ = false;
+  timestamp_ = 0;
 }
 
 // --------------------------------------------------------------------------
@@ -149,10 +157,15 @@ int EthernetUDP::parsePacket() {
     return 0;
   }
 
+  // Copy the incoming packet data and then clear it
   packet_ = inPacket_;
   addr_ = inAddr_;
   port_ = inPort_;
+  hasTimestamp_ = inHasTimestamp_;
+  timestamp_ = inTimestamp_;
   inPacket_.clear();
+  inHasTimestamp_ = false;
+  inTimestamp_ = 0;
 
   EthernetClass::loop();  // Allow the stack to move along
 
@@ -224,6 +237,17 @@ uint16_t EthernetUDP::remotePort() {
   return port_;
 }
 
+bool EthernetUDP::timestamp(uint32_t *timestamp) const {
+  // NOTE: This is not "concurrent safe"
+  if (hasTimestamp_) {
+    if (timestamp != nullptr) {
+      *timestamp = timestamp_;
+    }
+    return true;
+  }
+  return false;
+}
+
 // --------------------------------------------------------------------------
 //  Transmission
 // --------------------------------------------------------------------------
@@ -260,6 +284,14 @@ bool EthernetUDP::beginPacket(const ip_addr_t *ipaddr, uint16_t port) {
 }
 
 int EthernetUDP::endPacket() {
+  return endPacket(false);
+}
+
+bool EthernetUDP::endPacketWithTimestamp() {
+  return endPacket(true);
+}
+
+bool EthernetUDP::endPacket(bool doTimestamp) {
   if (!hasOutPacket_) {
     return false;
   }
@@ -277,6 +309,7 @@ int EthernetUDP::endPacket() {
   }
   pbuf_take(p, outPacket_.data(), outPacket_.size());
   outPacket_.clear();
+  p->timestampValid = doTimestamp;
   bool retval = (udp_sendto(pcb_, p, &outAddr_, outPort_) == ERR_OK);
   pbuf_free(p);
   return retval;
@@ -285,7 +318,13 @@ int EthernetUDP::endPacket() {
 bool EthernetUDP::send(const IPAddress &ip, uint16_t port,
                        const uint8_t *data, size_t len) {
   ip_addr_t ipaddr IPADDR4_INIT(get_uint32(ip));
-  return send(&ipaddr, port, data, len);
+  return send(&ipaddr, port, data, len, false);
+}
+
+bool EthernetUDP::sendWithTimestamp(const IPAddress &ip, uint16_t port,
+                                    const uint8_t *data, size_t len) {
+  ip_addr_t ipaddr IPADDR4_INIT(get_uint32(ip));
+  return send(&ipaddr, port, data, len, true);
 }
 
 bool EthernetUDP::send(const char *host, uint16_t port,
@@ -297,8 +336,18 @@ bool EthernetUDP::send(const char *host, uint16_t port,
   return send(ip, port, data, len);
 }
 
+bool EthernetUDP::sendWithTimestamp(const char *host, uint16_t port,
+                                    const uint8_t *data, size_t len) {
+  IPAddress ip;
+  if (!DNSClient::getHostByName(host, ip, kDNSLookupTimeout)) {
+    return false;
+  }
+  return sendWithTimestamp(ip, port, data, len);
+}
+
 bool EthernetUDP::send(const ip_addr_t *ipaddr, uint16_t port,
-                       const uint8_t *data, size_t len) {
+                       const uint8_t *data, size_t len,
+                       bool doTimestamp) {
   if (len > UINT16_MAX) {
     return false;
   }
@@ -315,6 +364,7 @@ bool EthernetUDP::send(const ip_addr_t *ipaddr, uint16_t port,
     return false;
   }
   pbuf_take(p, data, len);
+  p->timestampValid = doTimestamp;
   bool retval = (udp_sendto(pcb_, p, ipaddr, port) == ERR_OK);
   pbuf_free(p);
   return retval;

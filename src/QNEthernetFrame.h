@@ -78,6 +78,9 @@ class EthernetFrameClass final : public Stream {
   // 3. The length is not in the range 60-(maxFrameLen()-4) (excludes the FCS).
   bool endFrame();
 
+  // Same as `endFrame()` but also timestamps the frame.
+  bool endFrameWithTimestamp();
+
   // Sends a frame and returns whether the send was successful. This causes less
   // overhead than beginFrame()/write()/endFrame().
   //
@@ -89,6 +92,9 @@ class EthernetFrameClass final : public Stream {
   // 2. The frame is NULL, or
   // 3. The length is not in the range 60-(maxFrameLen()-4) (excludes the FCS).
   bool send(const uint8_t *frame, size_t len) const;
+
+  // Same as `send(frame, len)`, but adds a timestamp to the frame.
+  bool sendWithTimestamp(const uint8_t *frame, size_t len) const;
 
   // Bring Print::write functions into scope
   using Print::write;
@@ -116,21 +122,33 @@ class EthernetFrameClass final : public Stream {
   // Returns a pointer to the received frame data.
   const unsigned char *data() const;
 
+  // Gets the IEEE 1588 timestamp for the received frame and assigns it to the
+  // `timestamp` parameter, if available. This returns whether the received
+  // frame has a timestamp.
+  bool timestamp(uint32_t *timestamp) const;
+
  private:
   EthernetFrameClass() = default;
   ~EthernetFrameClass() = default;
 
   static err_t recvFunc(struct pbuf *p, struct netif *netif);
 
+  // Ends the frame and optionally adds a timestamp.
+  bool endFrame(bool doTimestamp);
+
   // Checks if there's data still available in the packet.
   bool isAvailable() const;
 
   // Received frame; updated every time one is received
   std::vector<unsigned char> inFrame_;  // Holds received frames
+  bool inHasTimestamp_ = false;
+  uint32_t inTimestamp_;
 
   // Frame being processed by the caller
   std::vector<unsigned char> frame_;    // Holds the frame being read
   int framePos_ = -1;                   // -1 if not currently reading a frame
+  bool hasTimestamp_ = false;
+  uint32_t timestamp_;
 
   // Outgoing frames
   bool hasOutFrame_ = false;
