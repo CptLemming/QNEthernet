@@ -18,6 +18,7 @@
 
 #include "QNEthernetClient.h"
 #include "QNEthernetFrame.h"
+#include "QNEthernetIEEE1588.h"
 #include "QNEthernetServer.h"
 #include "QNEthernetUDP.h"
 #include "QNMDNS.h"
@@ -270,6 +271,9 @@ extern MDNSClass &MDNS;
 
 // Instance for using raw Ethernet frames.
 extern EthernetFrameClass &EthernetFrame;
+
+// Instance for using IEEE 1588 functions.
+extern EthernetIEEE1588Class &EthernetIEEE1588;
 
 // Lets user code use stdout.
 extern Print *stdPrint;
