@@ -17,6 +17,7 @@
 #include "lwip/ip_addr.h"
 #include "lwip/opt.h"
 #include "lwip/udp.h"
+#include "lwip_t41.h"
 
 namespace qindesign {
 namespace network {
@@ -94,7 +95,7 @@ class EthernetUDP final : public UDP {
   // Gets the IEEE 1588 timestamp for the received packet and assigns it to the
   // `timestamp` parameter, if available. This returns whether the received
   // packet has a timestamp.
-  bool timestamp(uint32_t *timestamp) const;
+  bool timestamp(IEEE1588Timestamp &timestamp) const;
 
  private:
   static void recvFunc(void *arg, struct udp_pcb *pcb, struct pbuf *p,
@@ -115,7 +116,7 @@ class EthernetUDP final : public UDP {
   ip_addr_t inAddr_;
   volatile uint16_t inPort_;
   bool inHasTimestamp_;
-  uint32_t inTimestamp_;
+  IEEE1588Timestamp inTimestamp_;
 
   // Packet being processed by the caller
   std::vector<unsigned char> packet_;    // Holds the packet being read
@@ -123,7 +124,7 @@ class EthernetUDP final : public UDP {
   ip_addr_t addr_;
   uint16_t port_;
   bool hasTimestamp_;
-  uint32_t timestamp_;
+  IEEE1588Timestamp timestamp_;
 
   // Outgoing packets
   bool hasOutPacket_;

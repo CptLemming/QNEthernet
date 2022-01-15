@@ -48,7 +48,15 @@ err_t EthernetFrameClass::recvFunc(struct pbuf *p, struct netif *netif) {
   }
 
   EthernetFrame.inHasTimestamp_ = pHead->timestampValid;
-  EthernetFrame.inTimestamp_ = pHead->timestamp;
+  if (EthernetFrame.inHasTimestamp_) {
+    uint32_t ts = pHead->timestamp;
+    EthernetIEEE1588.readTimer(EthernetFrame.inTimestamp_);
+    if (EthernetFrame.inTimestamp_.nsec < ts) {
+      // The timer has wrapped around
+      EthernetFrame.inTimestamp_.sec--;
+    }
+    EthernetFrame.inTimestamp_.nsec = ts;
+  }
 
   pbuf_free(pHead);
 
@@ -66,7 +74,8 @@ int EthernetFrameClass::parseFrame() {
   timestamp_ = inTimestamp_;
   inFrame_.clear();
   inHasTimestamp_ = false;
-  inTimestamp_ = 0;
+  inTimestamp_.sec = 0;
+  inTimestamp_.nsec = 0;
 
   EthernetClass::loop();  // Allow the stack to move along
 
@@ -124,12 +133,10 @@ const unsigned char *EthernetFrameClass::data() const {
   return frame_.data();
 }
 
-bool EthernetFrameClass::timestamp(uint32_t *timestamp) const {
+bool EthernetFrameClass::timestamp(IEEE1588Timestamp &timestamp) const {
   // NOTE: This is not "concurrent safe"
   if (hasTimestamp_) {
-    if (timestamp != nullptr) {
-      *timestamp = timestamp_;
-    }
+    timestamp = timestamp_;
     return true;
   }
   return false;

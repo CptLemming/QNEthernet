@@ -119,7 +119,7 @@ class EthernetFrameClass final : public Stream {
   // Gets the IEEE 1588 timestamp for the received frame and assigns it to the
   // `timestamp` parameter, if available. This returns whether the received
   // frame has a timestamp.
-  bool timestamp(uint32_t *timestamp) const;
+  bool timestamp(IEEE1588Timestamp &timestamp) const;
 
  private:
   EthernetFrameClass() = default;
@@ -133,13 +133,13 @@ class EthernetFrameClass final : public Stream {
   // Received frame; updated every time one is received
   std::vector<unsigned char> inFrame_;  // Holds received frames
   bool inHasTimestamp_ = false;
-  uint32_t inTimestamp_;
+  IEEE1588Timestamp inTimestamp_;
 
   // Frame being processed by the caller
   std::vector<unsigned char> frame_;    // Holds the frame being read
   int framePos_ = -1;                   // -1 if not currently reading a frame
   bool hasTimestamp_ = false;
-  uint32_t timestamp_;
+  IEEE1588Timestamp timestamp_;
 
   // Outgoing frames
   bool hasOutFrame_ = false;
