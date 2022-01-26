@@ -49,13 +49,7 @@ err_t EthernetFrameClass::recvFunc(struct pbuf *p, struct netif *netif) {
 
   EthernetFrame.inHasTimestamp_ = pHead->timestampValid;
   if (EthernetFrame.inHasTimestamp_) {
-    uint32_t ts = pHead->timestamp;
-    EthernetIEEE1588.readTimer(EthernetFrame.inTimestamp_);
-    if (static_cast<unsigned long>(EthernetFrame.inTimestamp_.tv_nsec) < ts) {
-      // The timer has wrapped around
-      EthernetFrame.inTimestamp_.tv_sec--;
-    }
-    EthernetFrame.inTimestamp_.tv_nsec = ts;
+    EthernetFrame.inTimestamp_ = pHead->timestamp;
   }
 
   pbuf_free(pHead);
